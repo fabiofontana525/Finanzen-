@@ -244,43 +244,80 @@ async function sichern(){
   }catch(e){if(e&&e.name!=='AbortError')alert('Die Sicherung hat nicht geklappt. Bitte versuche es noch einmal.')}
 }
 
+function loadExcelJS(){
+  return new Promise((res,rej)=>{
+    if(window.ExcelJS)return res();
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+    s.onload=()=>res();
+    s.onerror=()=>rej(new Error('load fail'));
+    document.head.appendChild(s);
+  });
+}
+
 async function exportExcel(){
+  try{await loadExcelJS()}catch(e){alert('Für den Excel-Export wird einmalig eine Internetverbindung benötigt. Bitte WLAN/Mobilfunk prüfen und noch einmal versuchen.');return}
   const zeilenAlle=S.zeilen.filter(r=>r.typ==='zeile');
   const spAlle=S.spalten;
   const monthKeys=Object.keys(S.daten).filter(k=>zeilenAlle.some(r=>Object.values(S.daten[k][r.id]||{}).some(v=>z(v)!==0))).sort();
-  const th=(t,bg,color)=>`<th style="background:${bg};color:${color||'#fff'};padding:7px 12px;border:1px solid #999;font-size:13px;white-space:nowrap;text-align:left">${esc(t)}</th>`;
-  const tdL=(t,bold)=>`<td style="padding:6px 12px;border:1px solid #ccc;background:#F3F4F6;font-weight:${bold?700:600};${bold?'color:#B91C1C':'color:#111'}">${esc(t)}</td>`;
-  const tdV=(n,bold)=>`<td style="padding:6px 12px;border:1px solid #ccc;text-align:right;${bold?'color:#B91C1C;font-weight:700':'color:#111'}">${n.toFixed(2).replace('.',',')}</td>`;
-  let rows='',jahrAktuell=null;
+  const wb=new ExcelJS.Workbook();
+  const ws=wb.addWorksheet('Finanzen');
+  const setCell=(r,c,val,opts={})=>{
+    const cell=ws.getCell(r,c);
+    cell.value=val;
+    if(opts.bg)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+opts.bg}};
+    cell.font={bold:!!opts.bold,color:{argb:'FF'+(opts.color||'111111')}};
+    cell.border={top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
+    cell.alignment={horizontal:opts.align||'left'};
+    if(typeof val==='number')cell.numFmt='#,##0.00';
+  };
+  let row=1,jahrAktuell=null;
   monthKeys.forEach(k=>{
     const [j,mm]=k.split('-'),jahr=+j;
     if(jahr!==jahrAktuell){
       jahrAktuell=jahr;
-      rows+=`<tr><td colspan="${spAlle.length+1}" style="background:#111;color:#FFD60A;font-size:18px;font-weight:800;padding:10px 12px">${jahr}</td></tr>`;
+      ws.mergeCells(row,1,row,spAlle.length+1);
+      setCell(row,1,String(jahr),{bg:'111111',color:'FFD60A',bold:true});
+      row++;
     }
-    rows+=`<tr>${th('Monat: '+(M[+mm-1]||mm),'#1B2A24')}${spAlle.map((s,i)=>th(s.name,PAL[i%PAL.length],'#111')).join('')}</tr>`;
+    setCell(row,1,'Monat: '+(M[+mm-1]||mm),{bg:'1B2A24',color:'FFFFFF',bold:true});
+    spAlle.forEach((s,i)=>setCell(row,2+i,s.name,{bg:PAL[i%PAL.length].replace('#',''),color:'111111',bold:true}));
+    row++;
     zeilenAlle.forEach(r=>{
-      const vals=spAlle.map(s=>z((S.daten[k][r.id]||{})[s.id]));
-      rows+=`<tr>${tdL(r.name)}${vals.map(v=>tdV(v)).join('')}</tr>`;
+      setCell(row,1,r.name,{bg:'F3F4F6',bold:true});
+      spAlle.forEach((s,i)=>setCell(row,2+i,z((S.daten[k][r.id]||{})[s.id]),{align:'right'}));
+      row++;
     });
-    const totals=spAlle.map(s=>zeilenAlle.reduce((sum,r)=>sum+z((S.daten[k][r.id]||{})[s.id]),0));
-    rows+=`<tr>${tdL('Total',true)}${totals.map(v=>tdV(v,true)).join('')}</tr>`;
-    rows+=`<tr><td colspan="${spAlle.length+1}" style="padding:5px;border:0"></td></tr>`;
+    setCell(row,1,'Total',{bg:'F3F4F6',color:'B91C1C',bold:true});
+    spAlle.forEach((s,i)=>{
+      const sum=zeilenAlle.reduce((su,r)=>su+z((S.daten[k][r.id]||{})[s.id]),0);
+      setCell(row,2+i,sum,{bg:'F3F4F6',color:'B91C1C',bold:true,align:'right'});
+    });
+    row+=2;
   });
-  rows+=`<tr><td colspan="${spAlle.length+1}" style="background:#111;color:#FF4FA3;font-size:18px;font-weight:800;padding:10px 12px">Ausgaben</td></tr>`;
-  rows+=`<tr>${th('Datum','#1B2A24')}${th('Konto','#1B2A24')}${th('Notiz','#1B2A24')}${th('Betrag','#1B2A24')}</tr>`;
+  row++;
+  ws.mergeCells(row,1,row,4);
+  setCell(row,1,'Ausgaben',{bg:'111111',color:'FF4FA3',bold:true});
+  row++;
+  ['Datum','Konto','Notiz','Betrag'].forEach((t,i)=>setCell(row,1+i,t,{bg:'1B2A24',color:'FFFFFF',bold:true}));
+  row++;
   S.ausgaben.slice().sort((a,b)=>(am(a)<am(b)?1:-1)).forEach(a=>{
     const sp=(spAlle.find(s=>s.id===a.spalte)||{}).name||'';
-    rows+=`<tr>${tdL(a.datum||am(a))}${tdL(sp)}${tdL(a.notiz||'')}${tdV(-a.betrag,true)}</tr>`;
+    setCell(row,1,a.datum||am(a),{bg:'F3F4F6'});
+    setCell(row,2,sp,{bg:'F3F4F6'});
+    setCell(row,3,a.notiz||'',{bg:'F3F4F6'});
+    setCell(row,4,-a.betrag,{bg:'F3F4F6',color:'B91C1C',bold:true,align:'right'});
+    row++;
   });
-  const html=`<html><head><meta charset="utf-8"></head><body><table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif">${rows}</table></body></html>`;
-  const name='Finanztabelle-Export.xls',file=new File(['\uFEFF'+html],name,{type:'application/vnd.ms-excel'});
+  ws.columns.forEach(c=>{c.width=20});
+  const buf=await wb.xlsx.writeBuffer();
+  const name='Finanztabelle-Export.xlsx',file=new File([buf],name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   try{
-    if(window.showSaveFilePicker){
-      const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'application/vnd.ms-excel':['.xls']}}]});
-      const w=await h.createWritable();await w.write(file);await w.close();
-    }else if(navigator.canShare&&navigator.canShare({files:[file]})){
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
       await navigator.share({files:[file]});
+    }else if(window.showSaveFilePicker){
+      const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
+      const w=await h.createWritable();await w.write(buf);await w.close();
     }else{
       const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.appendChild(a);a.click();a.remove();
     }
