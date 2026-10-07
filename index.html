@@ -77,6 +77,19 @@ tr.tm td.v{color:var(--gruen-d)}tr.tt td.v{color:var(--rot-d)}
 .sw .eintrag.drag{transition:none}
 .warn{color:var(--gelb)}
 input[type=file]{display:none}
+.jcard{width:100%;text-align:left;background:var(--grau);color:var(--pink);font-weight:700;font-size:15px;border-radius:12px;padding:14px;margin-bottom:12px}
+.jpanel{background:var(--grau);border-radius:14px;padding:14px;margin-bottom:14px}
+.jgrid{display:flex;flex-wrap:wrap;gap:8px}
+.jtile{flex:1 1 42%;background:var(--grau2);border-left:4px solid;border-radius:10px;padding:10px 12px}
+.jtile small{color:#9CA3AF;font-size:12px;display:block}
+.jtile b{display:block;font-size:17px;margin-top:4px}
+.jbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.jy{width:42px;color:#D1D5DB;font-size:13px;flex:none}
+.jtrack{flex:1;background:var(--grau2);border-radius:6px;overflow:hidden;height:14px}
+.jfill{height:100%;border-radius:6px}
+.jbar b{width:100px;text-align:right;font-size:13px;flex:none}
+.fchip{background:none;color:#9CA3AF;border:1px solid #3A3A3C}
+.fchip.an{background:var(--pink);color:#000;border-color:var(--pink)}
 </style>
 </head>
 <body>
@@ -88,7 +101,7 @@ const S={daten:{},ausgaben:[],
  spalten:[{id:'giro',name:'Giro'},{id:'urlaub',name:'Urlaub'},{id:'spar',name:'Sparen'},{id:'geschaeft',name:'Geschäft'},{id:'depot',name:'Depot'}],
  zeilen:[{id:'gehalt',name:'Gehalt',typ:'zeile'},{id:'bk',name:'Bonus',typ:'kopf'},{id:'b1',name:'Oma',typ:'zeile'},{id:'b2',name:'Sebastian',typ:'zeile'},{id:'b3',name:'...',typ:'zeile'}]};
 const d0=new Date();
-let sel={j:d0.getFullYear(),m:d0.getMonth()},edit=false,ausSp=null,ausB='',ausN='',speicherOk=true;
+let sel={j:d0.getFullYear(),m:d0.getMonth()},edit=false,ausSp=null,ausB='',ausN='',speicherOk=true,zeigeJahr=false,ausFilterSp='',ausSuche='';
 
 try{const r=localStorage.getItem(KEY);if(r)Object.assign(S,JSON.parse(r))}catch(e){speicherOk=false}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){speicherOk=false}};
@@ -105,13 +118,41 @@ const aus=(sp,mk)=>S.ausgaben.filter(a=>a.spalte===sp&&(!mk||am(a)===mk)).reduce
 const tm=sp=>inc(S.daten[key()],sp)-aus(sp,key());
 const tt=sp=>Object.values(S.daten).reduce((s,m)=>s+inc(m,sp),0)-aus(sp);
 
+// Archiv: eine archivierte Zeile/Spalte bleibt für immer in den Totals (T.T) erhalten
+// und bleibt in jedem Monat sichtbar, in dem sie Daten hat. Neu ist sie nur ausgeblendet.
+const rowHatDaten=(rid,mk)=>{const m=S.daten[mk];if(!m||!m[rid])return false;return Object.values(m[rid]).some(v=>z(v)!==0)};
+const colHatDaten=(sid,mk)=>{const m=S.daten[mk];if(m&&Object.values(m).some(r=>z((r||{})[sid])!==0))return true;return S.ausgaben.some(a=>a.spalte===sid&&am(a)===mk)};
+const sichtbareZeilen=()=>{const mk=key();return S.zeilen.filter(r=>r.typ==='kopf'||!r.archiviert||rowHatDaten(r.id,mk))};
+const sichtbareSpalten=()=>{const mk=key();return S.spalten.filter(s=>!s.archiviert||colHatDaten(s.id,mk))};
+const archivierteZeilen=()=>S.zeilen.filter(r=>r.typ==='zeile'&&r.archiviert);
+const archivierteSpalten=()=>S.spalten.filter(s=>s.archiviert);
+
+// Jahresübersicht & Vergleich
+const PAL=['#FF4FA3','#FFD60A','#22C55E','#38BDF8','#A78BFA','#FB923C','#F472B6','#34D399'];
+const standEndeJahr=(sp,jahr)=>{
+  const bis=jahr+'-12';
+  const ink=Object.keys(S.daten).filter(k=>k<=bis).reduce((s,k)=>s+inc(S.daten[k],sp),0);
+  const ab=S.ausgaben.filter(a=>a.spalte===sp&&am(a)<=bis).reduce((s,a)=>s+a.betrag,0);
+  return ink-ab;
+};
+const nettoJahr=(sp,jahr)=>{let s=0;for(let mm=1;mm<=12;mm++){const k=jahr+'-'+String(mm).padStart(2,'0');s+=inc(S.daten[k],sp)-aus(sp,k)}return s};
+const alleJahre=()=>{
+  const js=new Set([sel.j]);
+  Object.keys(S.daten).forEach(k=>js.add(+k.split('-')[0]));
+  S.ausgaben.forEach(a=>{const j=+am(a).split('-')[0];if(j)js.add(j)});
+  return[...js].sort((a,b)=>a-b);
+};
+
 function updateTotals(){
   let a=0,b=0;
   S.spalten.forEach(sp=>{const x=tm(sp.id),y=tt(sp.id);a+=x;b+=y;
     const e1=document.getElementById('tm-'+sp.id),e2=document.getElementById('tt-'+sp.id);
-    if(e1)e1.textContent=eur(x);if(e2)e2.textContent=eur(y)});
+    if(e1){e1.textContent=eur(x);e1.style.color=x<-0.004?'var(--rot)':''}
+    if(e2){e2.textContent=eur(y);e2.style.color=y<-0.004?'#FCA5A5':''}
+  });
   const A=document.getElementById('boxTM'),B=document.getElementById('boxTT');
-  if(A)A.textContent=eur(a);if(B)B.textContent=eur(b);
+  if(A){A.textContent=eur(a);A.style.color=a<-0.004?'var(--rot)':'var(--gruen)'}
+  if(B){B.textContent=eur(b);B.style.color=b<-0.004?'#FCA5A5':'var(--rot)'}
 }
 
 function sicherungsText(){
@@ -122,39 +163,69 @@ function sicherungsText(){
 }
 
 function render(){
-  const y=window.scrollY,N=S.spalten.length+1+(edit?1:0);
+  const y=window.scrollY;
+  const af=document.activeElement,afD=af&&af.dataset?{...af.dataset}:null,afSel=af&&typeof af.selectionStart==='number'?af.selectionStart:null;
   const mo=(S.daten[key()]||{});
-  if(!S.spalten.find(s=>s.id===ausSp))ausSp=S.spalten[0]?S.spalten[0].id:null;
+  const msp=sichtbareSpalten(),mzl=sichtbareZeilen();
+  const N=msp.length+1+(edit?1:0);
+  const aktiveSpalten=S.spalten.filter(s=>!s.archiviert);
+  if(!aktiveSpalten.find(s=>s.id===ausSp))ausSp=aktiveSpalten[0]?aktiveSpalten[0].id:null;
   let h=`<div class="kopf"><h1>Finanztabelle</h1><button class="pill ${edit?'an':''}" data-a="edit">${edit?'Fertig':'Bearbeiten'}</button></div>`;
   if(!speicherOk)h+=`<p class="warn">Der Browser erlaubt kein Speichern. Deine Eingaben gehen beim Schließen verloren.</p>`;
   h+=`<div class="jahr"><button data-a="jahr" data-v="-1">‹</button><b>${sel.j}</b><button data-a="jahr" data-v="1">›</button></div>`;
   h+=`<div class="chips">${M.map((m,i)=>`<button class="chip ${sel.m===i?'an':''}" data-a="monat" data-v="${i}">${m}</button>`).join('')}</div>`;
+  h+=`<button class="jcard" data-a="togjahr">📊 Jahresübersicht ${sel.j} ${zeigeJahr?'— zuklappen':'— antippen'}</button>`;
+  if(zeigeJahr){
+    h+=`<div class="jpanel"><p class="hint" style="margin:0 0 10px">Kontostand am Ende von ${sel.j}, über alle Jahre aufaddiert:</p><div class="jgrid">`;
+    S.spalten.forEach((s,i)=>{const w=standEndeJahr(s.id,sel.j);h+=`<div class="jtile" style="border-color:${PAL[i%PAL.length]}"><small>${esc(s.name)}</small><b style="color:${w<-0.004?'var(--rot)':'#fff'}">${eur(w)}</b></div>`});
+    h+=`</div><p class="hint" style="margin:16px 0 8px">Vergleich: Einnahmen minus Ausgaben, nur innerhalb des jeweiligen Jahres</p>`;
+    const jahre=alleJahre(),werte=jahre.map(j=>S.spalten.reduce((s,sp)=>s+nettoJahr(sp.id,j),0)),max=Math.max(1,...werte.map(v=>Math.abs(v)));
+    jahre.forEach((j,i)=>{const w=werte[i],pos=w>=0;h+=`<div class="jbar"><span class="jy">${j}</span><div class="jtrack"><div class="jfill" style="width:${Math.min(100,Math.abs(w)/max*100)}%;background:${pos?'var(--gruen)':'var(--rot)'}"></div></div><b style="color:${pos?'var(--gruen)':'var(--rot)'}">${eur(w)}</b></div>`});
+    h+=`</div>`;
+  }
   h+=`<div class="tw"><table><tr><th class="l"><small>Monat</small><b class="y">${M[sel.m]}</b></th>`;
-  S.spalten.forEach(s=>{h+=`<th>`+(edit?`<div class="ed"><input data-f="sn" data-s="${s.id}" value="${esc(s.name)}"><button class="x" data-a="delcol" data-v="${s.id}">×</button></div>`:esc(s.name))+`</th>`});
+  msp.forEach(s=>{h+=`<th>`+(edit?`<div class="ed"><input data-f="sn" data-s="${s.id}" value="${esc(s.name)}"><button class="x" data-a="delcol" data-v="${s.id}">×</button></div>`:esc(s.name))+`</th>`});
   if(edit)h+=`<th style="padding:0;min-width:56px"><button class="plus" data-a="addcol">+</button></th>`;
   h+=`</tr>`;
-  S.zeilen.forEach((r,i)=>{
+  mzl.forEach((r,i)=>{
     const lab=edit?`<div class="ed"><input data-f="zn" data-z="${r.id}" value="${esc(r.name)}"><button data-a="mv" data-v="${r.id}" data-d="-1">▲</button><button data-a="mv" data-v="${r.id}" data-d="1">▼</button><button class="x" data-a="delrow" data-v="${r.id}">×</button></div>`:esc(r.name);
     if(r.typ==='kopf'){h+=`<tr class="k"><td colspan="${N}">${lab}</td></tr>`;return}
     h+=`<tr><td class="l">${lab}</td>`;
-    S.spalten.forEach(s=>{h+=`<td><input class="c" inputmode="decimal" placeholder="0" data-f="cell" data-z="${r.id}" data-s="${s.id}" value="${esc((mo[r.id]||{})[s.id]??'')}"></td>`});
+    msp.forEach(s=>{h+=`<td><input class="c" inputmode="decimal" placeholder="0" data-f="cell" data-z="${r.id}" data-s="${s.id}" value="${esc((mo[r.id]||{})[s.id]??'')}"></td>`});
     if(edit)h+=`<td></td>`;
     h+=`</tr>`;
   });
   if(edit)h+=`<tr><td colspan="${N}"><div class="add"><button data-a="addrow" data-v="zeile">+ Zeile</button><button data-a="addrow" data-v="kopf">+ Überschrift</button></div></td></tr>`;
-  ['tm','tt'].forEach(k=>{h+=`<tr class="${k}"><td class="l">${k==='tm'?'T.M':'T.T'}</td>`+S.spalten.map(s=>`<td class="v" id="${k}-${s.id}"></td>`).join('')+(edit?'<td></td>':'')+`</tr>`});
+  ['tm','tt'].forEach(k=>{h+=`<tr class="${k}"><td class="l">${k==='tm'?'T.M':'T.T'}</td>`+msp.map(s=>`<td class="v" id="${k}-${s.id}"></td>`).join('')+(edit?'<td></td>':'')+`</tr>`});
   h+=`</table></div>`;
+  if(edit&&(archivierteZeilen().length||archivierteSpalten().length)){
+    h+=`<h2>Archiviert</h2><div class="panel"><p class="hint" style="margin:0 0 10px">Diese Zeilen/Spalten sind ausgeblendet, ihre Beträge zählen aber weiter in T.T mit.</p>`;
+    archivierteZeilen().forEach(r=>{h+=`<div class="eintrag"><div>${esc(r.name)}<small>Zeile</small></div><button data-a="restrow" data-v="${r.id}" style="font-size:14px;color:var(--gelb)">Zurückholen</button></div>`});
+    archivierteSpalten().forEach(s=>{h+=`<div class="eintrag"><div>${esc(s.name)}<small>Spalte</small></div><button data-a="restcol" data-v="${s.id}" style="font-size:14px;color:var(--gelb)">Zurückholen</button></div>`});
+    h+=`</div>`;
+  }
   h+=`<div class="boxen"><div class="box" style="border-color:var(--gruen)"><small>T.M ${M[sel.m]}</small><b id="boxTM" style="color:var(--gruen)"></b></div><div class="box" style="border-color:var(--rot)"><small>T.T insgesamt</small><b id="boxTT" style="color:var(--rot)"></b></div></div>`;
-  h+=`<h2>Ausgaben eintragen</h2><div class="panel"><label>Wird abgezogen in: ${M[sel.m]} ${sel.j} (T.M und T.T)</label><label>Von welchem Konto?</label><div class="chips">${S.spalten.map(s=>`<button class="chip ${ausSp===s.id?'an':''}" data-a="aussp" data-v="${s.id}">${esc(s.name)}</button>`).join('')}</div>`;
+  h+=`<h2>Ausgaben eintragen</h2><div class="panel"><label>Wird abgezogen in: ${M[sel.m]} ${sel.j} (T.M und T.T)</label><label>Von welchem Konto?</label><div class="chips">${aktiveSpalten.map(s=>`<button class="chip ${ausSp===s.id?'an':''}" data-a="aussp" data-v="${s.id}">${esc(s.name)}</button>`).join('')}</div>`;
   h+=`<input class="in" id="ausB" inputmode="decimal" placeholder="Betrag, z. B. 50" value="${esc(ausB)}" data-f="ab"><input class="in" id="ausN" placeholder="Wofür? (optional)" value="${esc(ausN)}" data-f="an"><button class="btn" data-a="ausadd">Ausgabe abziehen</button></div>`;
-  S.ausgaben.filter(a=>S.spalten.some(s=>s.id===a.spalte)).forEach(a=>{
+  h+=`<div class="chips" style="margin-top:14px"><button class="chip fchip ${!ausFilterSp?'an':''}" data-a="ausfilter" data-v="">Alle Konten</button>${S.spalten.map(s=>`<button class="chip fchip ${ausFilterSp===s.id?'an':''}" data-a="ausfilter" data-v="${s.id}">${esc(s.name)}</button>`).join('')}</div>`;
+  h+=`<input class="in" placeholder="Suchen, z. B. Supermarkt" value="${esc(ausSuche)}" data-f="asuch">`;
+  let ausListe=S.ausgaben.filter(a=>S.spalten.some(s=>s.id===a.spalte));
+  if(ausFilterSp)ausListe=ausListe.filter(a=>a.spalte===ausFilterSp);
+  if(ausSuche.trim()){const q=ausSuche.trim().toLowerCase();ausListe=ausListe.filter(a=>(a.notiz||'').toLowerCase().includes(q))}
+  if(!ausListe.length)h+=`<p class="hint" style="margin-top:10px">Keine Ausgaben gefunden.</p>`;
+  ausListe.forEach(a=>{
     const [j,m]=am(a).split('-'),nm=M[+m-1]?M[+m-1]+' '+j:a.datum||'';
     h+=`<div class="sw"><button class="del" data-a="ausdel" data-v="${a.id}">Löschen</button><div class="eintrag"><div>${esc((S.spalten.find(s=>s.id===a.spalte)||{}).name)}${a.notiz?' · '+esc(a.notiz):''}<small>${esc(nm)}</small></div><b>-${eur(a.betrag)}</b></div></div>`;
   });
-  h+=`<h2>Datensicherung</h2><div class="panel"><button class="btn p" data-a="sichern">Sicherung speichern</button><p class="hint" style="margin:10px 0 0">${sicherungsText()}</p><p class="hint" style="margin:8px 0 0">Die Datei heißt immer „Finanztabelle-Sicherung.json“. Speichere sie im selben Ordner wieder darunter und wähle „Ersetzen“, dann bleibt nur die neueste Sicherung übrig.</p><label class="btn g" for="imp">Sicherung wiederherstellen</label><input type="file" id="imp" accept=".json,application/json"></div>`;
+  h+=`<h2>Datensicherung & Export</h2><div class="panel"><button class="btn p" data-a="sichern">Sicherung speichern</button><p class="hint" style="margin:10px 0 0">${sicherungsText()}</p><p class="hint" style="margin:8px 0 0">Die Datei heißt immer „Finanztabelle-Sicherung.json“. Speichere sie im selben Ordner wieder darunter und wähle „Ersetzen“, dann bleibt nur die neueste Sicherung übrig.</p><label class="btn g" for="imp">Sicherung wiederherstellen</label><input type="file" id="imp" accept=".json,application/json"><button class="btn g" data-a="csv" style="margin-top:10px">Als Excel-Datei exportieren (CSV)</button></div>`;
   h+=`<p class="hint" style="margin-top:18px">T.M zeigt die Einnahmen des gewählten Monats abzüglich der Ausgaben dieses Monats. T.T zählt alle Einnahmen aus allen Monaten und Jahren zusammen und zieht alle Ausgaben ab. Mit „Bearbeiten“ kannst du Zeilen, Überschriften und Spalten umbenennen, verschieben, löschen oder hinzufügen.</p>`;
   document.getElementById('app').innerHTML=h;
   updateTotals();window.scrollTo(0,y);
+  if(afD&&afD.f){
+    const sel2='[data-f="'+afD.f+'"]'+(afD.z?'[data-z="'+afD.z+'"]':'')+(afD.s?'[data-s="'+afD.s+'"]':'');
+    const el=document.querySelector(sel2);
+    if(el){el.focus();if(afSel!=null&&el.setSelectionRange)try{el.setSelectionRange(afSel,afSel)}catch(e){}}
+  }
 }
 
 async function sichern(){
@@ -171,6 +242,34 @@ async function sichern(){
     }
     localStorage.setItem(BK,Date.now());render();
   }catch(e){if(e&&e.name!=='AbortError')alert('Die Sicherung hat nicht geklappt. Bitte versuche es noch einmal.')}
+}
+
+async function exportCsv(){
+  const rows=[['Jahr','Monat','Zeile',...S.spalten.map(s=>s.name)]];
+  Object.keys(S.daten).sort().forEach(k=>{
+    const [j,mm]=k.split('-');
+    S.zeilen.filter(r=>r.typ==='zeile').forEach(r=>{
+      const vals=S.spalten.map(s=>z((S.daten[k][r.id]||{})[s.id]));
+      if(vals.some(v=>v!==0))rows.push([j,M[+mm-1]||mm,r.name,...vals.map(v=>v.toFixed(2).replace('.',','))]);
+    });
+  });
+  rows.push([]);rows.push(['Ausgaben']);rows.push(['Datum','Konto','Notiz','Betrag']);
+  S.ausgaben.forEach(a=>{
+    const sp=(S.spalten.find(s=>s.id===a.spalte)||{}).name||'';
+    rows.push([a.datum||am(a),sp,a.notiz||'',(-a.betrag).toFixed(2).replace('.',',')]);
+  });
+  const csv=rows.map(r=>r.map(c=>'"'+String(c??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const name='Finanztabelle-Export.csv',file=new File(['\uFEFF'+csv],name,{type:'text/csv'});
+  try{
+    if(window.showSaveFilePicker){
+      const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'text/csv':['.csv']}}]});
+      const w=await h.createWritable();await w.write(file);await w.close();
+    }else if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file]});
+    }else{
+      const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.appendChild(a);a.click();a.remove();
+    }
+  }catch(e){if(e&&e.name!=='AbortError')alert('Der Export hat nicht geklappt. Bitte versuche es noch einmal.')}
 }
 
 function wiederherstellen(file){
@@ -192,14 +291,19 @@ document.addEventListener('click',e=>{
   else if(a==='jahr')sel.j+=+v;
   else if(a==='monat')sel.m=+v;
   else if(a==='addcol')S.spalten.push({id:id(),name:'Neu'});
-  else if(a==='delcol'){const s=S.spalten.find(x=>x.id===v);if(!confirm('Spalte „'+s.name+'“ löschen? Sie verschwindet in allen Monaten und fließt nicht mehr in T.T ein.'))return;S.spalten=S.spalten.filter(x=>x.id!==v);S.ausgaben=S.ausgaben.filter(x=>x.spalte!==v)}
+  else if(a==='delcol'){const s=S.spalten.find(x=>x.id===v);if(!confirm('Spalte „'+s.name+'“ archivieren? Sie verschwindet ab jetzt aus neuen Monaten, bleibt aber in Monaten mit Daten sichtbar und zählt weiter in T.T mit.'))return;s.archiviert=true}
+  else if(a==='restcol'){const s=S.spalten.find(x=>x.id===v);if(s)s.archiviert=false}
   else if(a==='addrow')S.zeilen.push({id:id(),name:v==='kopf'?'Überschrift':'Neu',typ:v});
-  else if(a==='delrow'){const r=S.zeilen.find(x=>x.id===v);if(!confirm('„'+r.name+'“ löschen?'+(r.typ==='zeile'?' Die Zeile verschwindet in allen Monaten und ihre Beträge fließen nicht mehr in T.T ein.':'')))return;S.zeilen=S.zeilen.filter(x=>x.id!==v)}
+  else if(a==='delrow'){const r=S.zeilen.find(x=>x.id===v);if(r.typ==='kopf'){if(!confirm('Überschrift „'+r.name+'“ löschen?'))return;S.zeilen=S.zeilen.filter(x=>x.id!==v);return}if(!confirm('„'+r.name+'“ archivieren? Sie verschwindet ab jetzt aus neuen Monaten, bleibt aber in Monaten mit Daten sichtbar und zählt weiter in T.T mit.'))return;r.archiviert=true}
+  else if(a==='restrow'){const r=S.zeilen.find(x=>x.id===v);if(r)r.archiviert=false}
   else if(a==='mv'){const i=S.zeilen.findIndex(x=>x.id===v),t=i+ +b.dataset.d;if(t<0||t>=S.zeilen.length)return;[S.zeilen[i],S.zeilen[t]]=[S.zeilen[t],S.zeilen[i]]}
   else if(a==='aussp')ausSp=v;
   else if(a==='ausadd'){const n=z(ausB);if(!ausSp||n<=0){alert('Bitte gib einen Betrag größer als 0 ein.');return}S.ausgaben.unshift({id:id(),spalte:ausSp,betrag:n,notiz:ausN.trim(),monat:key(),datum:new Date().toLocaleDateString('de-DE')});ausB='';ausN=''}
   else if(a==='ausdel'){S.ausgaben=S.ausgaben.filter(x=>x.id!==v)}
   else if(a==='sichern'){sichern();return}
+  else if(a==='csv'){exportCsv();return}
+  else if(a==='togjahr'){zeigeJahr=!zeigeJahr}
+  else if(a==='ausfilter'){ausFilterSp=v}
   save();render();
 });
 
@@ -210,6 +314,7 @@ document.addEventListener('input',e=>{
   else if(f==='sn')S.spalten.find(x=>x.id===t.dataset.s).name=t.value;
   else if(f==='ab'){ausB=t.value;return}
   else if(f==='an'){ausN=t.value;return}
+  else if(f==='asuch'){ausSuche=t.value;render();return}
   save();
 });
 
