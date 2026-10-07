@@ -217,7 +217,7 @@ function render(){
     const [j,m]=am(a).split('-'),nm=M[+m-1]?M[+m-1]+' '+j:a.datum||'';
     h+=`<div class="sw"><button class="del" data-a="ausdel" data-v="${a.id}">Löschen</button><div class="eintrag"><div>${esc((S.spalten.find(s=>s.id===a.spalte)||{}).name)}${a.notiz?' · '+esc(a.notiz):''}<small>${esc(nm)}</small></div><b>-${eur(a.betrag)}</b></div></div>`;
   });
-  h+=`<h2>Datensicherung & Export</h2><div class="panel"><button class="btn p" data-a="sichern">Sicherung speichern</button><p class="hint" style="margin:10px 0 0">${sicherungsText()}</p><p class="hint" style="margin:8px 0 0">Die Datei heißt immer „Finanztabelle-Sicherung.json“. Speichere sie im selben Ordner wieder darunter und wähle „Ersetzen“, dann bleibt nur die neueste Sicherung übrig.</p><label class="btn g" for="imp">Sicherung wiederherstellen</label><input type="file" id="imp" accept=".json,application/json"><button class="btn g" data-a="csv" style="margin-top:10px">Als Excel-Datei exportieren (CSV)</button></div>`;
+  h+=`<h2>Datensicherung & Export</h2><div class="panel"><button class="btn p" data-a="sichern">Sicherung speichern</button><p class="hint" style="margin:10px 0 0">${sicherungsText()}</p><p class="hint" style="margin:8px 0 0">Die Datei heißt immer „Finanztabelle-Sicherung.json“. Speichere sie im selben Ordner wieder darunter und wähle „Ersetzen“, dann bleibt nur die neueste Sicherung übrig.</p><label class="btn g" for="imp">Sicherung wiederherstellen</label><input type="file" id="imp" accept=".json,application/json"><button class="btn g" data-a="xls" style="margin-top:10px">Als Excel-Datei exportieren</button></div>`;
   h+=`<p class="hint" style="margin-top:18px">T.M zeigt die Einnahmen des gewählten Monats abzüglich der Ausgaben dieses Monats. T.T zählt alle Einnahmen aus allen Monaten und Jahren zusammen und zieht alle Ausgaben ab. Mit „Bearbeiten“ kannst du Zeilen, Überschriften und Spalten umbenennen, verschieben, löschen oder hinzufügen.</p>`;
   document.getElementById('app').innerHTML=h;
   updateTotals();window.scrollTo(0,y);
@@ -244,25 +244,40 @@ async function sichern(){
   }catch(e){if(e&&e.name!=='AbortError')alert('Die Sicherung hat nicht geklappt. Bitte versuche es noch einmal.')}
 }
 
-async function exportCsv(){
-  const rows=[['Jahr','Monat','Zeile',...S.spalten.map(s=>s.name)]];
-  Object.keys(S.daten).sort().forEach(k=>{
-    const [j,mm]=k.split('-');
-    S.zeilen.filter(r=>r.typ==='zeile').forEach(r=>{
-      const vals=S.spalten.map(s=>z((S.daten[k][r.id]||{})[s.id]));
-      if(vals.some(v=>v!==0))rows.push([j,M[+mm-1]||mm,r.name,...vals.map(v=>v.toFixed(2).replace('.',','))]);
+async function exportExcel(){
+  const zeilenAlle=S.zeilen.filter(r=>r.typ==='zeile');
+  const spAlle=S.spalten;
+  const monthKeys=Object.keys(S.daten).filter(k=>zeilenAlle.some(r=>Object.values(S.daten[k][r.id]||{}).some(v=>z(v)!==0))).sort();
+  const th=(t,bg,color)=>`<th style="background:${bg};color:${color||'#fff'};padding:7px 12px;border:1px solid #999;font-size:13px;white-space:nowrap;text-align:left">${esc(t)}</th>`;
+  const tdL=(t,bold)=>`<td style="padding:6px 12px;border:1px solid #ccc;background:#F3F4F6;font-weight:${bold?700:600};${bold?'color:#B91C1C':'color:#111'}">${esc(t)}</td>`;
+  const tdV=(n,bold)=>`<td style="padding:6px 12px;border:1px solid #ccc;text-align:right;${bold?'color:#B91C1C;font-weight:700':'color:#111'}">${n.toFixed(2).replace('.',',')}</td>`;
+  let rows='',jahrAktuell=null;
+  monthKeys.forEach(k=>{
+    const [j,mm]=k.split('-'),jahr=+j;
+    if(jahr!==jahrAktuell){
+      jahrAktuell=jahr;
+      rows+=`<tr><td colspan="${spAlle.length+1}" style="background:#111;color:#FFD60A;font-size:18px;font-weight:800;padding:10px 12px">${jahr}</td></tr>`;
+    }
+    rows+=`<tr>${th('Monat: '+(M[+mm-1]||mm),'#1B2A24')}${spAlle.map((s,i)=>th(s.name,PAL[i%PAL.length],'#111')).join('')}</tr>`;
+    zeilenAlle.forEach(r=>{
+      const vals=spAlle.map(s=>z((S.daten[k][r.id]||{})[s.id]));
+      rows+=`<tr>${tdL(r.name)}${vals.map(v=>tdV(v)).join('')}</tr>`;
     });
+    const totals=spAlle.map(s=>zeilenAlle.reduce((sum,r)=>sum+z((S.daten[k][r.id]||{})[s.id]),0));
+    rows+=`<tr>${tdL('Total',true)}${totals.map(v=>tdV(v,true)).join('')}</tr>`;
+    rows+=`<tr><td colspan="${spAlle.length+1}" style="padding:5px;border:0"></td></tr>`;
   });
-  rows.push([]);rows.push(['Ausgaben']);rows.push(['Datum','Konto','Notiz','Betrag']);
-  S.ausgaben.forEach(a=>{
-    const sp=(S.spalten.find(s=>s.id===a.spalte)||{}).name||'';
-    rows.push([a.datum||am(a),sp,a.notiz||'',(-a.betrag).toFixed(2).replace('.',',')]);
+  rows+=`<tr><td colspan="${spAlle.length+1}" style="background:#111;color:#FF4FA3;font-size:18px;font-weight:800;padding:10px 12px">Ausgaben</td></tr>`;
+  rows+=`<tr>${th('Datum','#1B2A24')}${th('Konto','#1B2A24')}${th('Notiz','#1B2A24')}${th('Betrag','#1B2A24')}</tr>`;
+  S.ausgaben.slice().sort((a,b)=>(am(a)<am(b)?1:-1)).forEach(a=>{
+    const sp=(spAlle.find(s=>s.id===a.spalte)||{}).name||'';
+    rows+=`<tr>${tdL(a.datum||am(a))}${tdL(sp)}${tdL(a.notiz||'')}${tdV(-a.betrag,true)}</tr>`;
   });
-  const csv=rows.map(r=>r.map(c=>'"'+String(c??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
-  const name='Finanztabelle-Export.csv',file=new File(['\uFEFF'+csv],name,{type:'text/csv'});
+  const html=`<html><head><meta charset="utf-8"></head><body><table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif">${rows}</table></body></html>`;
+  const name='Finanztabelle-Export.xls',file=new File(['\uFEFF'+html],name,{type:'application/vnd.ms-excel'});
   try{
     if(window.showSaveFilePicker){
-      const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'text/csv':['.csv']}}]});
+      const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'application/vnd.ms-excel':['.xls']}}]});
       const w=await h.createWritable();await w.write(file);await w.close();
     }else if(navigator.canShare&&navigator.canShare({files:[file]})){
       await navigator.share({files:[file]});
@@ -301,7 +316,7 @@ document.addEventListener('click',e=>{
   else if(a==='ausadd'){const n=z(ausB);if(!ausSp||n<=0){alert('Bitte gib einen Betrag größer als 0 ein.');return}S.ausgaben.unshift({id:id(),spalte:ausSp,betrag:n,notiz:ausN.trim(),monat:key(),datum:new Date().toLocaleDateString('de-DE')});ausB='';ausN=''}
   else if(a==='ausdel'){S.ausgaben=S.ausgaben.filter(x=>x.id!==v)}
   else if(a==='sichern'){sichern();return}
-  else if(a==='csv'){exportCsv();return}
+  else if(a==='xls'){exportExcel();return}
   else if(a==='togjahr'){zeigeJahr=!zeigeJahr}
   else if(a==='ausfilter'){ausFilterSp=v}
   save();render();
