@@ -244,11 +244,11 @@ async function sichern(){
   }catch(e){if(e&&e.name!=='AbortError')alert('Die Sicherung hat nicht geklappt. Bitte versuche es noch einmal.')}
 }
 
-function loadExcelJS(){
+function loadXlsxPopulate(){
   return new Promise((res,rej)=>{
-    if(window.ExcelJS)return res();
+    if(window.XlsxPopulate)return res();
     const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js';
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx-populate/1.21.0/xlsx-populate.min.js';
     s.onload=()=>res();
     s.onerror=()=>rej(new Error('load fail'));
     document.head.appendChild(s);
@@ -256,27 +256,25 @@ function loadExcelJS(){
 }
 
 async function exportExcel(){
-  try{await loadExcelJS()}catch(e){alert('Für den Excel-Export wird einmalig eine Internetverbindung benötigt. Bitte WLAN/Mobilfunk prüfen und noch einmal versuchen.');return}
+  try{await loadXlsxPopulate()}catch(e){alert('Für den Excel-Export wird einmalig eine Internetverbindung benötigt. Bitte WLAN/Mobilfunk prüfen und noch einmal versuchen.');return}
   const zeilenAlle=S.zeilen.filter(r=>r.typ==='zeile');
   const spAlle=S.spalten;
   const monthKeys=Object.keys(S.daten).filter(k=>zeilenAlle.some(r=>Object.values(S.daten[k][r.id]||{}).some(v=>z(v)!==0))).sort();
-  const wb=new ExcelJS.Workbook();
-  const ws=wb.addWorksheet('Finanzen');
+  let wb;
+  try{wb=await XlsxPopulate.fromBlankAsync()}catch(e){alert('Der Export hat nicht geklappt. Bitte versuche es noch einmal.');return}
+  const sheet=wb.sheet(0);
   const setCell=(r,c,val,opts={})=>{
-    const cell=ws.getCell(r,c);
-    cell.value=val;
-    if(opts.bg)cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF'+opts.bg}};
-    cell.font={bold:!!opts.bold,color:{argb:'FF'+(opts.color||'111111')}};
-    cell.border={top:{style:'thin'},left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
-    cell.alignment={horizontal:opts.align||'left'};
-    if(typeof val==='number')cell.numFmt='#,##0.00';
+    const cell=sheet.cell(r,c);
+    cell.value(val);
+    cell.style({bold:!!opts.bold,fontColor:opts.color||'111111',fill:opts.bg||'FFFFFF'});
+    if(typeof val==='number')cell.style('numberFormat','#,##0.00');
   };
   let row=1,jahrAktuell=null;
   monthKeys.forEach(k=>{
     const [j,mm]=k.split('-'),jahr=+j;
     if(jahr!==jahrAktuell){
       jahrAktuell=jahr;
-      ws.mergeCells(row,1,row,spAlle.length+1);
+      sheet.range(row,1,row,spAlle.length+1).merged(true);
       setCell(row,1,String(jahr),{bg:'111111',color:'FFD60A',bold:true});
       row++;
     }
@@ -285,18 +283,18 @@ async function exportExcel(){
     row++;
     zeilenAlle.forEach(r=>{
       setCell(row,1,r.name,{bg:'F3F4F6',bold:true});
-      spAlle.forEach((s,i)=>setCell(row,2+i,z((S.daten[k][r.id]||{})[s.id]),{align:'right'}));
+      spAlle.forEach((s,i)=>setCell(row,2+i,z((S.daten[k][r.id]||{})[s.id]),{bg:'FFFFFF'}));
       row++;
     });
     setCell(row,1,'Total',{bg:'F3F4F6',color:'B91C1C',bold:true});
     spAlle.forEach((s,i)=>{
       const sum=zeilenAlle.reduce((su,r)=>su+z((S.daten[k][r.id]||{})[s.id]),0);
-      setCell(row,2+i,sum,{bg:'F3F4F6',color:'B91C1C',bold:true,align:'right'});
+      setCell(row,2+i,sum,{bg:'F3F4F6',color:'B91C1C',bold:true});
     });
     row+=2;
   });
   row++;
-  ws.mergeCells(row,1,row,4);
+  sheet.range(row,1,row,4).merged(true);
   setCell(row,1,'Ausgaben',{bg:'111111',color:'FF4FA3',bold:true});
   row++;
   ['Datum','Konto','Notiz','Betrag'].forEach((t,i)=>setCell(row,1+i,t,{bg:'1B2A24',color:'FFFFFF',bold:true}));
@@ -306,18 +304,19 @@ async function exportExcel(){
     setCell(row,1,a.datum||am(a),{bg:'F3F4F6'});
     setCell(row,2,sp,{bg:'F3F4F6'});
     setCell(row,3,a.notiz||'',{bg:'F3F4F6'});
-    setCell(row,4,-a.betrag,{bg:'F3F4F6',color:'B91C1C',bold:true,align:'right'});
+    setCell(row,4,-a.betrag,{bg:'F3F4F6',color:'B91C1C',bold:true});
     row++;
   });
-  ws.columns.forEach(c=>{c.width=20});
-  const buf=await wb.xlsx.writeBuffer();
-  const name='Finanztabelle-Export.xlsx',file=new File([buf],name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  for(let c=1;c<=Math.max(5,spAlle.length+1);c++)sheet.column(c).width(20);
+  let blob;
+  try{blob=await wb.outputAsync()}catch(e){alert('Der Export hat nicht geklappt. Bitte versuche es noch einmal.');return}
+  const name='Finanztabelle-Export.xlsx',file=new File([blob],name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   try{
     if(navigator.canShare&&navigator.canShare({files:[file]})){
       await navigator.share({files:[file]});
     }else if(window.showSaveFilePicker){
       const h=await showSaveFilePicker({suggestedName:name,types:[{accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});
-      const w=await h.createWritable();await w.write(buf);await w.close();
+      const w=await h.createWritable();await w.write(blob);await w.close();
     }else{
       const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.appendChild(a);a.click();a.remove();
     }
